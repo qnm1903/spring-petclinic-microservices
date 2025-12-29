@@ -70,21 +70,21 @@ pipeline {
         stage('Snyk Security Scan') {
             steps {
                 sh '''
-                    # Use Snyk via Docker with correct workdir
+                    # Use Snyk CLI via Docker - scan Maven projects
                     docker run --rm \
                         -e SNYK_TOKEN=${SNYK_TOKEN} \
-                        -v $(pwd):/project \
-                        -w /project \
-                        snyk/snyk:maven-3-jdk-17 \
+                        -v $(pwd):/app \
+                        -w /app \
+                        snyk/snyk-cli:maven-3.9.6_java-17 \
                         snyk test --all-projects --severity-threshold=high || true
 
                     # Generate JSON report
                     docker run --rm \
                         -e SNYK_TOKEN=${SNYK_TOKEN} \
-                        -v $(pwd):/project \
-                        -w /project \
-                        snyk/snyk:maven-3-jdk-17 \
-                        sh -c "snyk test --all-projects --json > /project/snyk-report.json" || true
+                        -v $(pwd):/app \
+                        -w /app \
+                        snyk/snyk-cli:maven-3.9.6_java-17 \
+                        sh -c "snyk test --all-projects --json > snyk-report.json" || true
                 '''
             }
             post {
@@ -103,14 +103,21 @@ pipeline {
             steps {
                 sh '''
                     echo "Scanning target: ${APP_URL}"
+                    # Create reports directory with proper permissions
+                    mkdir -p zap-reports
+                    chmod 777 zap-reports
+
                     docker run --rm \
                         -u root \
-                        -v $(pwd):/zap/wrk/:rw \
+                        -v $(pwd)/zap-reports:/zap/wrk:rw \
                         zaproxy/zap-stable zap-baseline.py \
                         -t ${APP_URL} \
                         -r zap-report.html \
                         -J zap-report.json \
                         -I || true
+
+                    # Move reports to workspace root
+                    cp zap-reports/zap-report.* . 2>/dev/null || true
                 '''
             }
             post {
