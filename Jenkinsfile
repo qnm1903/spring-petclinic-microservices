@@ -70,10 +70,11 @@ pipeline {
         stage('Snyk Security Scan') {
             steps {
                 sh '''
-                    # Use Snyk via Docker
+                    # Use Snyk via Docker with correct workdir
                     docker run --rm \
                         -e SNYK_TOKEN=${SNYK_TOKEN} \
                         -v $(pwd):/project \
+                        -w /project \
                         snyk/snyk:maven-3-jdk-17 \
                         snyk test --all-projects --severity-threshold=high || true
 
@@ -81,8 +82,9 @@ pipeline {
                     docker run --rm \
                         -e SNYK_TOKEN=${SNYK_TOKEN} \
                         -v $(pwd):/project \
+                        -w /project \
                         snyk/snyk:maven-3-jdk-17 \
-                        snyk test --all-projects --json > snyk-report.json || true
+                        sh -c "snyk test --all-projects --json > /project/snyk-report.json" || true
                 '''
             }
             post {
