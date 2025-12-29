@@ -1,0 +1,37 @@
+# Gitleaks configuration file
+# Extends default rules and adds custom allowlists
+# See https://github.com/gitleaks/gitleaks for documentation
+
+title = "Gitleaks Configuration for Spring Petclinic"
+
+[extend]
+# Use default gitleaks rules as base
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for test files and known safe patterns"
+
+# Paths to ignore (test files, example configs)
+paths = [
+    '''(.*/)?test/.*''',
+    '''(.*/)?Test\.java''',
+    '''(.*/)?\*Test\.java''',
+    '''(.*/)?src/test/.*''',
+    '''README\.md''',
+    '''docs/.*''',
+]
+
+# Regex patterns to ignore (example/demo values)
+regexes = [
+    '''EXAMPLE''',
+    '''example\.com''',
+    '''localhost''',
+    '''127\.0\.0\.1''',
+    '''your[_-]?(api)?[_-]?key''',
+    '''<your[_-].*>''',
+]
+
+# Specific commits to ignore (if needed)
+# commits = [
+#     "commit-sha-to-ignore",
+# ]
