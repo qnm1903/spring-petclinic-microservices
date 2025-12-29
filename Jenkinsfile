@@ -1,11 +1,11 @@
 pipeline {
     agent any
-    
+
     tools {
         maven 'Maven-3.9'  // Configure in Jenkins Global Tool Configuration
         jdk 'JDK-17'       // Configure in Jenkins Global Tool Configuration
     }
-    
+
     environment {
         SONAR_TOKEN = credentials('sonar-token')           // SonarCloud token
         SNYK_TOKEN = credentials('snyk-token')             // Snyk token
@@ -14,7 +14,7 @@ pipeline {
         APP_URL = 'http://localhost:8080'                   // App URL for ZAP scan
         RUN_ZAP = 'false'                                   // Default to false
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
@@ -22,7 +22,7 @@ pipeline {
                 echo 'Code checked out successfully'
             }
         }
-        
+
         stage('Build') {
             steps {
                 sh './mvnw clean package -DskipTests'
@@ -33,7 +33,7 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Unit Tests') {
             steps {
                 sh './mvnw test'
@@ -44,12 +44,12 @@ pipeline {
                 }
             }
         }
-        
+
         stage('SonarCloud Analysis') {
             steps {
                 withSonarQubeEnv('SonarCloud') {
                     sh '''
-                        ./mvnw sonar:sonar \
+                        ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
                             -Dsonar.projectKey=qnm1903_spring-petclinic-microservices \
                             -Dsonar.organization=${SONAR_ORG} \
                             -Dsonar.host.url=${SONAR_HOST_URL} \
@@ -58,7 +58,7 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Quality Gate') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
@@ -66,19 +66,19 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Snyk Security Scan') {
             steps {
                 sh '''
                     # Install Snyk if not available
                     which snyk || npm install -g snyk
-                    
+
                     # Authenticate
                     snyk auth ${SNYK_TOKEN}
-                    
+
                     # Test for vulnerabilities
                     snyk test --all-projects --severity-threshold=high || true
-                    
+
                     # Generate JSON report
                     snyk test --all-projects --json > snyk-report.json || true
                 '''
@@ -89,12 +89,12 @@ pipeline {
                 }
             }
         }
-        
+
         stage('OWASP ZAP Scan') {
             when {
-                expression { 
+                expression {
                     // Only run ZAP when app is deployed
-                    return env.RUN_ZAP == 'true' 
+                    return env.RUN_ZAP == 'true'
                 }
             }
             steps {
@@ -123,7 +123,7 @@ pipeline {
             }
         }
     }
-    
+
     post {
         always {
             cleanWs()
