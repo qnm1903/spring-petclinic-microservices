@@ -92,10 +92,31 @@ pipeline {
             }
         }
 
+        stage('Deploy App for DAST') {
+            when {
+                expression {
+                    return env.RUN_ZAP == 'true'
+                }
+            }
+            steps {
+                sh '''
+                    # Start API Gateway for ZAP scan (background)
+                    cd spring-petclinic-api-gateway
+                    nohup ../mvnw spring-boot:run -DskipTests > /tmp/app.log 2>&1 &
+                    
+                    # Wait for app to start
+                    echo "Waiting for application to start..."
+                    sleep 60
+                    
+                    # Health check
+                    curl -s --retry 10 --retry-delay 5 http://localhost:8080/actuator/health || true
+                '''
+            }
+        }
+
         stage('OWASP ZAP Scan') {
             when {
                 expression {
-                    // Only run ZAP when app is deployed
                     return env.RUN_ZAP == 'true'
                 }
             }
@@ -112,6 +133,9 @@ pipeline {
             }
             post {
                 always {
+                    // Cleanup: stop the app
+                    sh 'pkill -f spring-boot:run || true'
+                    
                     archiveArtifacts artifacts: 'zap-report.*', allowEmptyArchive: true
                     publishHTML(target: [
                         allowMissing: true,
