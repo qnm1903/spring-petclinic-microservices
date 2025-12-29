@@ -70,35 +70,42 @@ pipeline {
         stage('Snyk Security Scan') {
             steps {
                 script {
-                    echo "=== Starting Snyk Scan (Copy Mode) ==="
+                    echo "=== Starting Snyk Scan ==="
                     sh '''
-                        # Remove old container if exists
                         docker rm -f snyk-scan-job || true
+
+                        # Create a script file to run inside container
+                        cat > /tmp/snyk-scan.sh << 'SNYK_SCRIPT'
+#!/bin/bash
+cd /app
+echo "=== Files in /app ==="
+ls -la
+echo "=== Running Snyk scan ==="
+snyk test --all-projects --severity-threshold=high || true
+echo "=== Generating JSON report ==="
+snyk test --all-projects --json > /app/snyk-report.json || true
+echo "=== Report generated ==="
+ls -la /app/snyk-report.json
+SNYK_SCRIPT
 
                         echo "Creating Snyk container..."
                         docker create --name snyk-scan-job \
                             -e SNYK_TOKEN=${SNYK_TOKEN} \
                             -w /app \
                             snyk/snyk:maven-3-jdk-17 \
-                            sh -c "ls -la /app && snyk test --all-projects --severity-threshold=high; snyk test --all-projects --json > /app/snyk-report.json; ls -la /app"
+                            bash /app/snyk-scan.sh
 
-                        echo "Copying project files to Snyk container..."
+                        echo "Copying files to container..."
                         docker cp . snyk-scan-job:/app
+                        docker cp /tmp/snyk-scan.sh snyk-scan-job:/app/snyk-scan.sh
 
                         echo "Running Snyk scan..."
                         docker start -a snyk-scan-job || true
 
-                        echo "=== DEBUG: Listing files in container /app ==="
-                        docker start snyk-scan-job 2>/dev/null || true
-                        docker exec snyk-scan-job ls -la /app 2>/dev/null || docker cp snyk-scan-job:/app/. /tmp/snyk-debug 2>/dev/null || echo "Cannot list container files"
-
                         echo "Copying report back..."
                         docker cp snyk-scan-job:/app/snyk-report.json . && echo "SUCCESS: Copied snyk-report.json" || echo "FAILED: Could not copy snyk-report.json"
 
-                        echo "=== Files in workspace ==="
-                        ls -la snyk*.* 2>/dev/null || echo "No snyk files found"
-
-                        # Cleanup
+                        ls -la snyk*.* 2>/dev/null || echo "No snyk files in workspace"
                         docker rm -f snyk-scan-job || true
                     '''
                 }
@@ -118,37 +125,37 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Starting ZAP Scan (Copy Mode) ==="
+                    echo "=== Starting ZAP Scan ==="
                     sh '''
                         docker rm -f zap-scan-job || true
+
+                        # Create script for ZAP that creates the wrk directory first
+                        cat > /tmp/zap-scan.sh << 'ZAP_SCRIPT'
+#!/bin/bash
+mkdir -p /zap/wrk
+echo "=== Starting ZAP baseline scan ==="
+zap-baseline.py -t $1 -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
+echo "=== Report generated ==="
+ls -la /zap/wrk/
+ZAP_SCRIPT
 
                         echo "Creating ZAP container..."
                         docker create --name zap-scan-job \
                             --user root \
                             zaproxy/zap-stable \
-                            sh -c "zap-baseline.py -t ${APP_URL} -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I; ls -la /zap/wrk/"
+                            bash /tmp/zap-scan.sh "${APP_URL}"
+
+                        echo "Copying script to container..."
+                        docker cp /tmp/zap-scan.sh zap-scan-job:/tmp/zap-scan.sh
 
                         echo "Running ZAP scan..."
                         docker start -a zap-scan-job || true
 
-                        echo "=== DEBUG: Listing files in container ==="
-                        docker diff zap-scan-job 2>/dev/null | head -20 || echo "Cannot diff container"
+                        echo "Copying reports back..."
+                        docker cp zap-scan-job:/zap/wrk/zap-report.html . && echo "SUCCESS: Copied zap-report.html" || echo "FAILED: Could not copy zap-report.html"
+                        docker cp zap-scan-job:/zap/wrk/zap-report.json . && echo "SUCCESS: Copied zap-report.json" || echo "FAILED: Could not copy zap-report.json"
 
-                        echo "Trying multiple paths to copy reports..."
-                        docker cp zap-scan-job:/zap/wrk/zap-report.html . 2>/dev/null && echo "Copied from /zap/wrk/" || \
-                        docker cp zap-scan-job:/home/zap/zap-report.html . 2>/dev/null && echo "Copied from /home/zap/" || \
-                        docker cp zap-scan-job:/zap/zap-report.html . 2>/dev/null && echo "Copied from /zap/" || \
-                        echo "FAILED: Could not find zap-report.html"
-
-                        docker cp zap-scan-job:/zap/wrk/zap-report.json . 2>/dev/null || \
-                        docker cp zap-scan-job:/home/zap/zap-report.json . 2>/dev/null || \
-                        docker cp zap-scan-job:/zap/zap-report.json . 2>/dev/null || \
-                        echo "FAILED: Could not find zap-report.json"
-
-                        echo "=== Files in workspace ==="
-                        ls -la zap-report.* *.html *.json 2>/dev/null || echo "No report files found"
-
-                        # Cleanup
+                        ls -la zap-report.* 2>/dev/null || echo "No zap files in workspace"
                         docker rm -f zap-scan-job || true
                     '''
                 }
