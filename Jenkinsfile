@@ -69,34 +69,42 @@ pipeline {
 
         stage('Snyk Security Scan') {
             steps {
-                sh '''
-                    echo "=== Starting Snyk Scan ==="
-                    echo "Current directory: $(pwd)"
-                    ls -la pom.xml || echo "No pom.xml in root"
+                script {
+                    echo "=== Starting Snyk Scan (Copy Mode) ==="
+                    // 1. Create container (stopped)
+                    // We use sh -c to run multiple commands: text scan (to stdout) AND json scan (to file)
+                    def snykCmd = "snyk test --all-projects --severity-threshold=high; snyk test --all-projects --json > snyk-report.json"
 
-                    # Run Snyk test and capture output
-                    docker run --rm \
-                        -e SNYK_TOKEN=${SNYK_TOKEN} \
-                        -v "$(pwd)":/app \
-                        -w /app \
-                        snyk/snyk:maven-3-jdk-17 \
-                        snyk test --all-projects --severity-threshold=high 2>&1 | tee snyk-output.txt || true
+                    // Note: We avoid 'docker run' with volumes. We use 'docker create'.
+                    sh '''
+                        # Remove old container if exists
+                        docker rm -f snyk-scan-job || true
 
-                    # Create JSON report - run snyk with json output inside container and redirect
-                    docker run --rm \
-                        -e SNYK_TOKEN=${SNYK_TOKEN} \
-                        -v "$(pwd)":/app \
-                        -w /app \
-                        snyk/snyk:maven-3-jdk-17 \
-                        sh -c "snyk test --all-projects --json 2>&1" > snyk-report.json || true
+                        echo "Creating Snyk container..."
+                        docker create --name snyk-scan-job \
+                            -e SNYK_TOKEN=${SNYK_TOKEN} \
+                            -w /app \
+                            snyk/snyk:maven-3-jdk-17 \
+                            sh -c "snyk test --all-projects --severity-threshold=high || true; snyk test --all-projects --json > snyk-report.json || true"
 
-                    echo "=== Snyk files created ==="
-                    ls -la snyk*.* 2>/dev/null || echo "No snyk files found"
-                '''
+                        echo "Copying project files to Snyk container..."
+                        # Copy current directory content to /app in container
+                        docker cp . snyk-scan-job:/app
+
+                        echo "Running Snyk scan..."
+                        docker start -a snyk-scan-job || true
+
+                        echo "Copying report back..."
+                        docker cp snyk-scan-job:/app/snyk-report.json . || echo "Failed to copy Snyk report"
+
+                        # Cleanup
+                        docker rm -f snyk-scan-job
+                    '''
+                }
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'snyk-*.json,snyk-*.txt', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'snyk-report.json', allowEmptyArchive: true
                 }
             }
         }
@@ -108,27 +116,41 @@ pipeline {
                 }
             }
             steps {
-                sh '''
-                    echo "=== Starting ZAP Scan ==="
-                    echo "Scanning target: ${APP_URL}"
+                script {
+                    echo "=== Starting ZAP Scan (Copy Mode) ==="
+                    sh '''
+                        docker rm -f zap-scan-job || true
 
-                    # Use explicit absolute path for mount
-                    WORKSPACE_DIR=$(pwd)
-                    echo "Workspace: ${WORKSPACE_DIR}"
+                        # ZAP writes to /zap/wrk by default with zap-baseline.py
+                        # We don't need to copy source code IN, just reports OUT.
+                        # But we must verify if zap-baseline.py needs a mapped volume to write.
+                        # Usually it writes to mounted volume. If not mounted, it writes to container path.
 
-                    docker run --rm \
-                        --user root \
-                        -v "${WORKSPACE_DIR}":/zap/wrk:rw \
-                        zaproxy/zap-stable zap-baseline.py \
-                        -t ${APP_URL} \
-                        -r zap-report.html \
-                        -J zap-report.json \
-                        -I || true
+                        echo "Creating ZAP container..."
+                        docker create --name zap-scan-job \
+                            --user root \
+                            zaproxy/zap-stable \
+                            zap-baseline.py \
+                            -t ${APP_URL} \
+                            -r zap-report.html \
+                            -J zap-report.json \
+                            -I
 
-                    echo "=== ZAP files created ==="
-                    ls -la zap-report.* 2>/dev/null || echo "No zap-report files in current dir"
-                    ls -la *.html *.json 2>/dev/null || echo "No report files found"
-                '''
+                        echo "Running ZAP scan..."
+                        docker start -a zap-scan-job || true
+
+                        echo "Copying reports back..."
+                        # Default workdir of zaproxy is /zap. py script mounts to /zap/wrk
+                        # Without mount, files should represent in /zap/wrk inside container if the script creates it
+                        # Or strictly follow the -r path.
+                        # Let's try copying from /zap/wrk/
+
+                        docker cp zap-scan-job:/zap/wrk/zap-report.html . || echo "Failed to copy HTML report"
+                        docker cp zap-scan-job:/zap/wrk/zap-report.json . || echo "Failed to copy JSON report"
+
+                        docker rm -f zap-scan-job
+                    '''
+                }
             }
             post {
                 always {
