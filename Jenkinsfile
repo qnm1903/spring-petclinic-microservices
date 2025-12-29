@@ -70,17 +70,19 @@ pipeline {
         stage('Snyk Security Scan') {
             steps {
                 sh '''
-                    # Install Snyk if not available
-                    which snyk || npm install -g snyk
-
-                    # Authenticate
-                    snyk auth ${SNYK_TOKEN}
-
-                    # Test for vulnerabilities
-                    snyk test --all-projects --severity-threshold=high || true
+                    # Use Snyk via Docker
+                    docker run --rm \
+                        -e SNYK_TOKEN=${SNYK_TOKEN} \
+                        -v $(pwd):/project \
+                        snyk/snyk:maven-3-jdk-17 \
+                        snyk test --all-projects --severity-threshold=high || true
 
                     # Generate JSON report
-                    snyk test --all-projects --json > snyk-report.json || true
+                    docker run --rm \
+                        -e SNYK_TOKEN=${SNYK_TOKEN} \
+                        -v $(pwd):/project \
+                        snyk/snyk:maven-3-jdk-17 \
+                        snyk test --all-projects --json > snyk-report.json || true
                 '''
             }
             post {
