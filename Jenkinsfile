@@ -104,6 +104,7 @@ pipeline {
                 sh '''
                     echo "Scanning target: ${APP_URL}"
                     docker run --rm \
+                        -u root \
                         -v $(pwd):/zap/wrk/:rw \
                         zaproxy/zap-stable zap-baseline.py \
                         -t ${APP_URL} \
