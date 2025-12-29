@@ -70,26 +70,33 @@ pipeline {
         stage('Snyk Security Scan') {
             steps {
                 sh '''
-                    # Use Snyk CLI via Docker - scan Maven projects
-                    docker run --rm \
-                        -e SNYK_TOKEN=${SNYK_TOKEN} \
-                        -v $(pwd):/app \
-                        -w /app \
-                        snyk/snyk-cli:maven-3.9.6_java-17 \
-                        snyk test --all-projects --severity-threshold=high || true
+                    echo "=== Starting Snyk Scan ==="
+                    echo "Current directory: $(pwd)"
+                    ls -la pom.xml || echo "No pom.xml in root"
 
-                    # Generate JSON report
+                    # Run Snyk test and capture output
                     docker run --rm \
                         -e SNYK_TOKEN=${SNYK_TOKEN} \
-                        -v $(pwd):/app \
+                        -v "$(pwd)":/app \
                         -w /app \
-                        snyk/snyk-cli:maven-3.9.6_java-17 \
-                        sh -c "snyk test --all-projects --json > snyk-report.json" || true
+                        snyk/snyk:maven-3-jdk-17 \
+                        snyk test --all-projects --severity-threshold=high 2>&1 | tee snyk-output.txt || true
+
+                    # Create JSON report - run snyk with json output inside container and redirect
+                    docker run --rm \
+                        -e SNYK_TOKEN=${SNYK_TOKEN} \
+                        -v "$(pwd)":/app \
+                        -w /app \
+                        snyk/snyk:maven-3-jdk-17 \
+                        sh -c "snyk test --all-projects --json 2>&1" > snyk-report.json || true
+
+                    echo "=== Snyk files created ==="
+                    ls -la snyk*.* 2>/dev/null || echo "No snyk files found"
                 '''
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'snyk-report.json', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'snyk-*.json,snyk-*.txt', allowEmptyArchive: true
                 }
             }
         }
@@ -102,22 +109,25 @@ pipeline {
             }
             steps {
                 sh '''
+                    echo "=== Starting ZAP Scan ==="
                     echo "Scanning target: ${APP_URL}"
-                    # Create reports directory with proper permissions
-                    mkdir -p zap-reports
-                    chmod 777 zap-reports
+
+                    # Use explicit absolute path for mount
+                    WORKSPACE_DIR=$(pwd)
+                    echo "Workspace: ${WORKSPACE_DIR}"
 
                     docker run --rm \
-                        -u root \
-                        -v $(pwd)/zap-reports:/zap/wrk:rw \
+                        --user root \
+                        -v "${WORKSPACE_DIR}":/zap/wrk:rw \
                         zaproxy/zap-stable zap-baseline.py \
                         -t ${APP_URL} \
                         -r zap-report.html \
                         -J zap-report.json \
                         -I || true
 
-                    # Move reports to workspace root
-                    cp zap-reports/zap-report.* . 2>/dev/null || true
+                    echo "=== ZAP files created ==="
+                    ls -la zap-report.* 2>/dev/null || echo "No zap-report files in current dir"
+                    ls -la *.html *.json 2>/dev/null || echo "No report files found"
                 '''
             }
             post {
