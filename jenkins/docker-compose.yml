@@ -6,7 +6,7 @@ services:
     container_name: jenkins
     restart: unless-stopped
     ports:
-      - "8081:8080"  # Run on 8081 to avoid conflict with App (8080)
+      - "9080:8080"
       - "50000:50000"
     volumes:
       - jenkins_home:/var/jenkins_home
