@@ -134,7 +134,7 @@ SNYK_SCRIPT
 #!/bin/bash
 mkdir -p /zap/wrk
 echo "=== Starting ZAP baseline scan ==="
-zap-baseline.py -t $1 -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
+zap-baseline.py -t $1 -r zap-report.html -J zap-report.json -I
 echo "=== Report generated ==="
 ls -la /zap/wrk/
 ZAP_SCRIPT
