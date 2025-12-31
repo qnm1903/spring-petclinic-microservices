@@ -8,7 +8,7 @@ Chạy lệnh sau tại thư mục này:
 docker-compose up -d
 ```
 
-Jenkins sẽ chạy tại: **http://localhost:8081** (để tránh xung đột với ứng dụng chạy port 8080).
+Jenkins sẽ chạy tại: **http://localhost:9080**
 
 ## 2. Unlock Jenkins
 
@@ -74,6 +74,6 @@ Vào **Manage Jenkins → System**:
 2.  Trong phần **Pipeline**:
     *   Definition: **Pipeline script from SCM**
     *   SCM: **Git**
-    *   Repository URL: (URL local folder hoặc github repo của bạn)
+    *   Repository URL: (URL local folder hoặc github repo)
     *   Script Path: `Jenkinsfile`
 3.  **Save** và **Build Now**.
